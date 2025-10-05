@@ -1,4 +1,5 @@
-# server.pyc
+# server.py v1.1
+#https://github.com/xhdndmm/meow-chat
 
 import socket
 import threading
