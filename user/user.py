@@ -1,4 +1,5 @@
-# user.py
+# user.py v1.1
+#https://github.com/xhdndmm/meow-chat
 
 import sys
 import socket
@@ -81,7 +82,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.online_users_label)
 
     def init_ui(self):
-        self.setWindowTitle("meow-chat-user-v2.0")
+        self.setWindowTitle("meow-chat-user-v1.1")
         central = QWidget()
         self.setCentralWidget(central)
         v_layout = QVBoxLayout()
@@ -258,7 +259,7 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         QMessageBox.information(
-            self, "关于", '<a href="https://github.com/xhdndmm/meow-chat">meow-chat-user-v2.0</a>'
+            self, "关于", '<a href="https://github.com/xhdndmm/meow-chat">meow-chat-user-v1.1</a>'
         )
 
     def closeEvent(self, event):
