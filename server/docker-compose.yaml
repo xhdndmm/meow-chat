@@ -1,0 +1,11 @@
+services:
+  meow-chat-server:
+    build: .
+    container_name: meow-chat-server
+    ports:
+      - "12345:12345"
+    volumes:
+      - ./chat.json:/app/chat.json
+      - ./users.db:/app/users.db
+      - ./server.log:/app/server.log
+    restart: always
