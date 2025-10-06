@@ -1,5 +1,5 @@
-# server.py v1.1
-#https://github.com/xhdndmm/meow-chat
+# server.py v1.2
+# https://github.com/xhdndmm/meow-chat
 
 import socket
 import threading
@@ -12,11 +12,15 @@ import logging
 
 logging.basicConfig(filename='server.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-DB_PATH = "users.db"
+DB_PATH = "server_data.db"
+clients = []
 
+
+# ---------------- 数据库初始化 ----------------
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+    # 用户表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -24,20 +28,21 @@ def init_db():
             last_ip TEXT
         )
     """)
+    # 聊天记录表
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            message TEXT,
+            ip TEXT,
+            time TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
-if os.path.exists("chat.json"):
-    try:
-        with open("chat.json", "r") as file:
-            MESSAGE_LOG = json.load(file)
-    except Exception:
-        MESSAGE_LOG = []
-else:
-    MESSAGE_LOG = []
 
-clients = []
-
+# ---------------- 用户注册 / 登录 ----------------
 def register_user(username, password):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -49,6 +54,7 @@ def register_user(username, password):
         return False
     finally:
         conn.close()
+
 
 def verify_user(username, password, ip):
     conn = sqlite3.connect(DB_PATH)
@@ -70,6 +76,30 @@ def verify_user(username, password, ip):
     conn.close()
     return {"status": "ok", "message": message}
 
+
+# ---------------- 聊天记录操作 ----------------
+def save_message_to_db(username, message, ip, time):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("INSERT INTO chat_history (username, message, ip, time) VALUES (?, ?, ?, ?)",
+                (username, message, ip, time))
+    conn.commit()
+    conn.close()
+
+
+def send_sync_history(client_socket, since):
+    """按时间同步缺失的聊天记录"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT username, message, ip, time FROM chat_history WHERE time > ? ORDER BY time ASC", (since,))
+    rows = cur.fetchall()
+    conn.close()
+    data = [{"username": r[0], "message": r[1], "ip": r[2], "time": r[3]} for r in rows]
+    payload = {"type": "history", "data": data}
+    client_socket.sendall(base64.b64encode(json.dumps(payload).encode("utf-8")))
+
+
+# ---------------- 网络通信 ----------------
 def read_message(sock):
     buffer = bytearray()
     while True:
@@ -81,6 +111,33 @@ def read_message(sock):
             break
     return bytes(buffer)
 
+
+def send_to_client(message, client_socket):
+    try:
+        encrypted = base64.b64encode(message.encode('utf-8'))
+        client_socket.sendall(encrypted)
+    except Exception as e:
+        logging.error(f"Send error: {e}")
+        if client_socket in clients:
+            clients.remove(client_socket)
+        client_socket.close()
+
+
+def broadcast(message, client_socket, data):
+    """广播消息并保存"""
+    for client in clients:
+        if client != client_socket:
+            send_to_client(message, client)
+    save_message_to_db(data["username"], data["message"], data["ip"], data["time"])
+
+
+def broadcast_online_users():
+    count = len(clients)
+    msg = json.dumps({"type": "online_users", "count": count})
+    for client in clients:
+        send_to_client(msg, client)
+
+
 def handle_client(client_socket):
     global clients
     verified = False
@@ -90,13 +147,15 @@ def handle_client(client_socket):
             raw_message = read_message(client_socket)
             if not raw_message:
                 break
-            decoded = base64.b64decode(raw_message).decode('utf-8')
+            decoded = base64.b64decode(raw_message).decode("utf-8")
             data = json.loads(decoded)
 
+            # 登录 / 注册
             if not verified:
                 cmd = data.get("command")
                 if cmd == "register":
-                    if register_user(data["username"], data["password"]):
+                    ok = register_user(data["username"], data["password"])
+                    if ok:
                         send_to_client(json.dumps({"type": "register", "status": "ok", "message": "注册成功"}), client_socket)
                     else:
                         send_to_client(json.dumps({"type": "register", "status": "fail", "message": "用户名已存在"}), client_socket)
@@ -113,96 +172,57 @@ def handle_client(client_socket):
                     else:
                         send_to_client(json.dumps({"type": "login", "status": "fail", "message": result["message"]}), client_socket)
                     continue
-                else:
-                    send_to_client(json.dumps({"type": "fail", "message": "未验证的命令"}), client_socket)
-                    break
 
-            if data.get("command") == "load_history":
-                send_chat_history(client_socket)
+            # 聊天记录同步
+            if data.get("command") == "sync_history":
+                since = data.get("since", "1970-01-01 00:00:00")
+                send_sync_history(client_socket, since)
                 continue
 
+            # 普通消息
             data["ip"] = client_socket.getpeername()[0]
             if "time" not in data:
                 data["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            processed_message = json.dumps(data)
-            broadcast(processed_message, client_socket, data)
+            msg_json = json.dumps(data)
+            broadcast(msg_json, client_socket, data)
+
         except Exception as e:
             logging.error(f"Client error: {e}")
             break
+
     if client_socket in clients:
         clients.remove(client_socket)
         broadcast_online_users()
     client_socket.close()
 
-def broadcast_online_users():
-    global clients
-    count = len(clients)
-    message = json.dumps({"type": "online_users", "count": count})
-    for client in clients:
-        send_to_client(message, client)
 
-def save_message_to_file(username, message, ip, time):
-    global MESSAGE_LOG
-    MESSAGE_LOG.append({"username": username, "message": message, "ip": ip, "time": time})
-    with open("chat.json", "w") as file:
-        json.dump(MESSAGE_LOG, file, ensure_ascii=False, indent=4)
-
-def broadcast(message, client_socket, data):
-    for client in clients:
-        if client != client_socket:
-            send_to_client(message, client)
-    save_message_to_file(data["username"], data["message"], data["ip"], data["time"])
-
-def send_to_client(message, client_socket):
-    try:
-        encrypted = base64.b64encode(message.encode('utf-8'))
-        client_socket.sendall(encrypted)
-    except Exception as e:
-        logging.error(f"Send error: {e}")
-        if client_socket in clients:
-            clients.remove(client_socket)
-        client_socket.close()
-
-def send_chat_history(client_socket):
-    try:
-        history_payload = {"type": "history", "data": MESSAGE_LOG}
-        json_payload = json.dumps(history_payload)
-        encrypted = base64.b64encode(json_payload.encode('utf-8'))
-        client_socket.sendall(encrypted)
-    except Exception as e:
-        logging.error(f"Error sending history: {e}")
-
+# ---------------- 启动服务器 ----------------
 def start_server():
+    init_db()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "12345"))
     server.bind((host, port))
     server.listen(5)
-    server.settimeout(1)
     logging.info(f"Server started on {host}:{port}")
 
-    shutdown_flag = False
     try:
-        while not shutdown_flag:
-            try:
-                client_socket, addr = server.accept()
-                logging.info(f"Connection from {addr}")
-                clients.append(client_socket)
-                threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
-            except socket.timeout:
-                pass
+        while True:
+            client_socket, addr = server.accept()
+            clients.append(client_socket)
+            threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
+            logging.info(f"Connection from {addr}")
     except KeyboardInterrupt:
-        logging.info("Server shutting down manually...")
+        logging.info("Server shutting down...")
     finally:
         for client in clients:
             try:
                 client.close()
-            except Exception:
+            except:
                 pass
         server.close()
-        logging.info("Server closed.")
+
 
 if __name__ == "__main__":
-    init_db()
     start_server()

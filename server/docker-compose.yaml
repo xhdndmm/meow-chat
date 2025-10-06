@@ -5,7 +5,6 @@ services:
     ports:
       - "12345:12345"
     volumes:
-      - ./chat.json:/app/chat.json
-      - ./users.db:/app/users.db
+      - ./server_data.db:/app/server_data.db
       - ./server.log:/app/server.log
     restart: always
