@@ -1,0 +1,126 @@
+name: Build & Test & Release (Nuitka)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            suffix: linux-x86_64
+
+          - os: ubuntu-latest
+            arch: arm64
+            suffix: linux-arm64
+
+          - os: windows-latest
+            arch: x86_64
+            suffix: windows-x86_64
+
+          - os: windows-latest
+            arch: arm64
+            suffix: windows-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install nuitka pytest
+
+      # 先测试，失败直接终止
+      - name: Run tests
+        run: |
+          if [ -d "tests" ]; then
+            pytest -v
+          else
+            echo "No tests directory, skip tests"
+          fi
+
+      # Linux ARM64 使用 QEMU
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64' && startsWith(matrix.os, 'ubuntu')
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build server (Nuitka)
+        shell: bash
+        run: |
+          mkdir -p dist_out
+
+          python -m nuitka \
+            --onefile \
+            --follow-imports \
+            --assume-yes-for-downloads \
+            --output-filename=server-${{ env.VERSION }}-${{ matrix.suffix }} \
+            server/server.py
+
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            mv server-${{ env.VERSION }}-${{ matrix.suffix }}.exe dist_out/
+          else
+            mv server-${{ env.VERSION }}-${{ matrix.suffix }} dist_out/
+          fi
+
+      - name: Build user (Nuitka)
+        shell: bash
+        run: |
+          python -m nuitka \
+            --onefile \
+            --follow-imports \
+            --assume-yes-for-downloads \
+            --output-filename=user-${{ env.VERSION }}-${{ matrix.suffix }} \
+            user/user.py
+
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            mv user-${{ env.VERSION }}-${{ matrix.suffix }}.exe dist_out/
+          else
+            mv user-${{ env.VERSION }}-${{ matrix.suffix }} dist_out/
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.suffix }}
+          path: dist_out/*
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: artifacts/**/*

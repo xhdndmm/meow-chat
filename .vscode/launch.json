@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/server/server.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "user",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/user/user.py",
+            "console": "integratedTerminal"
+        }
+    ]
+}

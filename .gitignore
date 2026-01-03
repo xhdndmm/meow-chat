@@ -174,10 +174,7 @@ cython_debug/
 .vs/
 
 # Visual Studio Code
-.vscode/
+#.vscode/
 
-#coat history
-chat.json
-
-# users data
-users.db
+local_chat.db
+server_data.db

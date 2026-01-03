@@ -1,4 +1,4 @@
-# server.py v1.2
+# server.py v1.3
 # https://github.com/xhdndmm/meow-chat
 
 import socket
@@ -9,6 +9,10 @@ import base64
 import sqlite3
 from datetime import datetime
 import logging
+import hmac
+import hashlib
+import secrets
+
 
 logging.basicConfig(filename='server.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -40,6 +44,44 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+
+
+# --------------- 服务器校验 ----------------
+SHARED_SECRET = "meow-chat-secret-v1"
+
+def hmac_sha256(key, msg):
+    return hmac.new(
+        key.encode(),
+        msg.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+def verify_client_handshake(client_socket):
+    try:
+        # 1. 等待客户端 HELLO
+        raw = read_message(client_socket)
+        data = json.loads(base64.b64decode(raw).decode())
+        if data.get("type") != "hello":
+            return False
+
+        # 2. 发送 challenge
+        challenge = secrets.token_hex(16)
+        payload = {"type": "challenge", "challenge": challenge}
+        client_socket.sendall(
+            base64.b64encode(json.dumps(payload).encode())
+        )
+
+        # 3. 接收 response
+        raw = read_message(client_socket)
+        resp = json.loads(base64.b64decode(raw).decode())
+
+        expected = hmac_sha256(SHARED_SECRET, challenge)
+        return resp.get("type") == "response" and resp.get("hmac") == expected
+
+    except Exception as e:
+        logging.error(f"Handshake failed: {e}")
+        return False
+
 
 
 # ---------------- 用户注册 / 登录 ----------------
@@ -210,6 +252,17 @@ def start_server():
     try:
         while True:
             client_socket, addr = server.accept()
+            if not verify_client_handshake(client_socket):
+                logging.warning(f"Client {addr} failed verification")
+                client_socket.close()
+                continue
+
+            clients.append(client_socket)
+            threading.Thread(
+                target=handle_client,
+                args=(client_socket,),
+                daemon=True
+            ).start()            
             clients.append(client_socket)
             threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
             logging.info(f"Connection from {addr}")
