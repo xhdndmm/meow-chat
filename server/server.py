@@ -46,7 +46,7 @@ def init_db():
     conn.close()
 
 
-# --------------- 服务器校验 ----------------
+# --------------- 客户端校验 ----------------
 SHARED_SECRET = "meow-chat-secret-v1"
 
 def hmac_sha256(key, msg):
@@ -257,12 +257,6 @@ def start_server():
                 client_socket.close()
                 continue
 
-            clients.append(client_socket)
-            threading.Thread(
-                target=handle_client,
-                args=(client_socket,),
-                daemon=True
-            ).start()            
             clients.append(client_socket)
             threading.Thread(target=handle_client, args=(client_socket,), daemon=True).start()
             logging.info(f"Connection from {addr}")
