@@ -55,6 +55,7 @@ jobs:
 
       # 先测试，失败直接终止
       - name: Run tests
+        shell: bash
         run: |
           if [ -d "tests" ]; then
             pytest -v
