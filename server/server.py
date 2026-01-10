@@ -1,4 +1,4 @@
-# server.py v1.3
+# server.py v1.4
 # https://github.com/xhdndmm/meow-chat
 
 import socket
@@ -229,6 +229,7 @@ def start_server():
     port = int(os.getenv("PORT", "12345"))
     server.bind((host, port))
     server.listen(5)
+    logging.info("Meow-Chat-Server-v1.4")
     logging.info(f"Server started on {host}:{port}")
 
     try:
