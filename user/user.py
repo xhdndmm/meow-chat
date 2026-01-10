@@ -204,6 +204,8 @@ class MainWindow(QMainWindow):
         # 消息输入
         h_msg = QHBoxLayout()
         self.message_edit = QLineEdit()
+        # 按 Enter (Return) 直接发送消息
+        self.message_edit.returnPressed.connect(self.send_message)
         h_msg.addWidget(self.message_edit)
         self.send_btn = QPushButton("发送")
         self.send_btn.clicked.connect(self.send_message)
