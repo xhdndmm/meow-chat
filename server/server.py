@@ -5,26 +5,59 @@ import socket
 import threading
 import json
 import os
-import base64
 import sqlite3
 from datetime import datetime
 import logging
 import hmac
 import hashlib
 import secrets
-
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 logging.basicConfig(filename='server.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 DB_PATH = "server_data.db"
 clients = []
 
+# --- 安全配置 ---
+# 必须与客户端一致，且为32字节
+ENCRYPTION_KEY = b'meow-chat-fixed-32-byte-key-v1.4' 
+aesgcm = AESGCM(ENCRYPTION_KEY)
+SHARED_SECRET = "meow-chat-secret-v1"
+
+def encrypt_payload(data_dict):
+    data_bytes = json.dumps(data_dict).encode('utf-8')
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, data_bytes, None)
+    return nonce + ciphertext
+
+def decrypt_payload(raw_bytes):
+    nonce = raw_bytes[:12]
+    ciphertext = raw_bytes[12:]
+    data_bytes = aesgcm.decrypt(nonce, ciphertext, None)
+    return json.loads(data_bytes.decode('utf-8'))
+
+def send_secure_msg(sock, data_dict):
+    encrypted = encrypt_payload(data_dict)
+    length = len(encrypted).to_bytes(4, byteorder='big')
+    sock.sendall(length + encrypted)
+
+def read_secure_msg(sock):
+    raw_len = sock.recv(4)
+    if not raw_len: return None
+    msg_len = int.from_bytes(raw_len, byteorder='big')
+    chunks = []
+    bytes_recd = 0
+    while bytes_recd < msg_len:
+        chunk = sock.recv(min(msg_len - bytes_recd, 2048))
+        if not chunk: break
+        chunks.append(chunk)
+        bytes_recd += len(chunk)
+    return decrypt_payload(b''.join(chunks))
 
 # ---------------- 数据库初始化 ----------------
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    # 用户表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -32,7 +65,6 @@ def init_db():
             last_ip TEXT
         )
     """)
-    # 聊天记录表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS chat_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,44 +77,29 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 # --------------- 客户端校验 ----------------
-SHARED_SECRET = "meow-chat-secret-v1"
-
 def hmac_sha256(key, msg):
-    return hmac.new(
-        key.encode(),
-        msg.encode(),
-        hashlib.sha256
-    ).hexdigest()
+    return hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
 
 def verify_client_handshake(client_socket):
     try:
-        # 1. 等待客户端 HELLO
-        raw = read_message(client_socket)
-        data = json.loads(base64.b64decode(raw).decode())
-        if data.get("type") != "hello":
+        # 1. 等待 HELLO
+        data = read_secure_msg(client_socket)
+        if not data or data.get("type") != "hello":
             return False
 
         # 2. 发送 challenge
         challenge = secrets.token_hex(16)
         payload = {"type": "challenge", "challenge": challenge}
-        client_socket.sendall(
-            base64.b64encode(json.dumps(payload).encode())
-        )
+        send_secure_msg(client_socket, payload)
 
         # 3. 接收 response
-        raw = read_message(client_socket)
-        resp = json.loads(base64.b64decode(raw).decode())
-
+        resp = read_secure_msg(client_socket)
         expected = hmac_sha256(SHARED_SECRET, challenge)
         return resp.get("type") == "response" and resp.get("hmac") == expected
-
     except Exception as e:
         logging.error(f"Handshake failed: {e}")
         return False
-
-
 
 # ---------------- 用户注册 / 登录 ----------------
 def register_user(username, password):
@@ -96,7 +113,6 @@ def register_user(username, password):
         return False
     finally:
         conn.close()
-
 
 def verify_user(username, password, ip):
     conn = sqlite3.connect(DB_PATH)
@@ -118,7 +134,6 @@ def verify_user(username, password, ip):
     conn.close()
     return {"status": "ok", "message": message}
 
-
 # ---------------- 聊天记录操作 ----------------
 def save_message_to_db(username, message, ip, time):
     conn = sqlite3.connect(DB_PATH)
@@ -128,9 +143,7 @@ def save_message_to_db(username, message, ip, time):
     conn.commit()
     conn.close()
 
-
 def send_sync_history(client_socket, since):
-    """按时间同步缺失的聊天记录"""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT username, message, ip, time FROM chat_history WHERE time > ? ORDER BY time ASC", (since,))
@@ -138,47 +151,26 @@ def send_sync_history(client_socket, since):
     conn.close()
     data = [{"username": r[0], "message": r[1], "ip": r[2], "time": r[3]} for r in rows]
     payload = {"type": "history", "data": data}
-    client_socket.sendall(base64.b64encode(json.dumps(payload).encode("utf-8")))
-
+    send_secure_msg(client_socket, payload)
 
 # ---------------- 网络通信 ----------------
-def read_message(sock):
-    buffer = bytearray()
-    while True:
-        chunk = sock.recv(1024)
-        if not chunk:
-            break
-        buffer.extend(chunk)
-        if len(chunk) < 1024:
-            break
-    return bytes(buffer)
-
-
-def send_to_client(message, client_socket):
-    try:
-        encrypted = base64.b64encode(message.encode('utf-8'))
-        client_socket.sendall(encrypted)
-    except Exception as e:
-        logging.error(f"Send error: {e}")
-        if client_socket in clients:
-            clients.remove(client_socket)
-        client_socket.close()
-
-
-def broadcast(message, client_socket, data):
-    """广播消息并保存"""
+def broadcast(message_data, client_socket):
     for client in clients:
         if client != client_socket:
-            send_to_client(message, client)
-    save_message_to_db(data["username"], data["message"], data["ip"], data["time"])
-
+            try:
+                send_secure_msg(client, message_data)
+            except:
+                if client in clients: clients.remove(client)
+    save_message_to_db(message_data["username"], message_data["message"], message_data["ip"], message_data["time"])
 
 def broadcast_online_users():
     count = len(clients)
-    msg = json.dumps({"type": "online_users", "count": count})
+    payload = {"type": "online_users", "count": count}
     for client in clients:
-        send_to_client(msg, client)
-
+        try:
+            send_secure_msg(client, payload)
+        except:
+            pass
 
 def handle_client(client_socket):
     global clients
@@ -186,21 +178,16 @@ def handle_client(client_socket):
     username = None
     while True:
         try:
-            raw_message = read_message(client_socket)
-            if not raw_message:
+            data = read_secure_msg(client_socket)
+            if not data:
                 break
-            decoded = base64.b64decode(raw_message).decode("utf-8")
-            data = json.loads(decoded)
 
-            # 登录 / 注册
             if not verified:
                 cmd = data.get("command")
                 if cmd == "register":
                     ok = register_user(data["username"], data["password"])
-                    if ok:
-                        send_to_client(json.dumps({"type": "register", "status": "ok", "message": "注册成功"}), client_socket)
-                    else:
-                        send_to_client(json.dumps({"type": "register", "status": "fail", "message": "用户名已存在"}), client_socket)
+                    resp = {"type": "register", "status": "ok" if ok else "fail", "message": "注册成功" if ok else "用户名已存在"}
+                    send_secure_msg(client_socket, resp)
                     continue
                 elif cmd == "login":
                     ip = client_socket.getpeername()[0]
@@ -209,24 +196,21 @@ def handle_client(client_socket):
                         verified = True
                         username = data["username"]
                         msg = {"type": "login", "status": "ok", "message": result["message"]}
-                        send_to_client(json.dumps(msg), client_socket)
+                        send_secure_msg(client_socket, msg)
                         broadcast_online_users()
                     else:
-                        send_to_client(json.dumps({"type": "login", "status": "fail", "message": result["message"]}), client_socket)
+                        send_secure_msg(client_socket, {"type": "login", "status": "fail", "message": result["message"]})
                     continue
 
-            # 聊天记录同步
             if data.get("command") == "sync_history":
                 since = data.get("since", "1970-01-01 00:00:00")
                 send_sync_history(client_socket, since)
                 continue
 
-            # 普通消息
             data["ip"] = client_socket.getpeername()[0]
             if "time" not in data:
                 data["time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            msg_json = json.dumps(data)
-            broadcast(msg_json, client_socket, data)
+            broadcast(data, client_socket)
 
         except Exception as e:
             logging.error(f"Client error: {e}")
@@ -237,8 +221,6 @@ def handle_client(client_socket):
         broadcast_online_users()
     client_socket.close()
 
-
-# ---------------- 启动服务器 ----------------
 def start_server():
     init_db()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -263,13 +245,7 @@ def start_server():
     except KeyboardInterrupt:
         logging.info("Server shutting down...")
     finally:
-        for client in clients:
-            try:
-                client.close()
-            except:
-                pass
         server.close()
-
 
 if __name__ == "__main__":
     start_server()
