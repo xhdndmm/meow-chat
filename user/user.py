@@ -1,4 +1,4 @@
-# user.py v1.4
+# user.py v1.5
 # https://github.com/xhdndmm/meow-chat
 
 import sys
@@ -243,24 +243,27 @@ class MainWindow(QMainWindow):
         h_conn.addWidget(self.server_combo)
         self.remember_chk = QCheckBox("记住此服务器")
         h_conn.addWidget(self.remember_chk)
+        h_conn.addStretch()
+        v_layout.addLayout(h_conn)
 
-        h_conn.addWidget(QLabel("用户名:"))
+        h_user = QHBoxLayout()
+        h_user.addWidget(QLabel("用户名:"))
         self.username_edit = QLineEdit()
-        h_conn.addWidget(self.username_edit)
+        h_user.addWidget(self.username_edit)
 
-        h_conn.addWidget(QLabel("密码:"))
+        h_user.addWidget(QLabel("密码:"))
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        h_conn.addWidget(self.password_edit)
+        h_user.addWidget(self.password_edit)
 
         self.login_btn = QPushButton("登录")
         self.login_btn.clicked.connect(self.login_to_server)
-        h_conn.addWidget(self.login_btn)
+        h_user.addWidget(self.login_btn)
 
         self.register_btn = QPushButton("注册")
         self.register_btn.clicked.connect(self.register_account)
-        h_conn.addWidget(self.register_btn)
-        v_layout.addLayout(h_conn)
+        h_user.addWidget(self.register_btn)
+        v_layout.addLayout(h_user)
 
         # 加载客户端配置并填充下拉项
         cfg = load_client_config()

@@ -1,4 +1,4 @@
-# server.py v1.4
+# server.py v1.5
 # https://github.com/xhdndmm/meow-chat
 
 import socket
@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'server_config.json')
 
 def load_server_config():
-    """如果配置文件不存在则写入默认配置；返回配置字典（中文注释）"""
+    #如果配置文件不存在则写入默认配置，返回配置字典
     default = {
         "host": "0.0.0.0",
         "port": 12345,
