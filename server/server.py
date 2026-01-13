@@ -13,10 +13,42 @@ import hashlib
 import secrets
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-logging.basicConfig(filename='server.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# 读取服务端配置（支持自定义日志文件、数据库存储路径、监听地址与端口）
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'server_config.json')
 
-DB_PATH = "server_data.db"
+def load_server_config():
+    """如果配置文件不存在则写入默认配置；返回配置字典（中文注释）"""
+    default = {
+        "host": "0.0.0.0",
+        "port": 12345,
+        "db_path": "server_data.db",
+        "log_file": "server.log",
+        "log_level": "INFO"
+    }
+    try:
+        if not os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+                json.dump(default, f, indent=2, ensure_ascii=False)
+            return default
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+            # 合并默认值并返回
+            merged = default.copy()
+            merged.update(cfg)
+            return merged
+    except Exception as e:
+        # 配置读取失败则退回默认配置
+        print(f"加载 server_config.json 失败：{e}")
+        return default
+
+cfg = load_server_config()
+DB_PATH = cfg.get('db_path', 'server_data.db')
+LOG_FILE = cfg.get('log_file', 'server.log')
+LOG_LEVEL = getattr(logging, cfg.get('log_level', 'INFO').upper(), logging.INFO)
 clients = []
+
+# 配置日志（使用配置文件指定的日志文件与级别）
+logging.basicConfig(filename=LOG_FILE, level=LOG_LEVEL, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- 安全配置 ---
 # 必须与客户端一致，且为32字节
@@ -225,12 +257,13 @@ def start_server():
     init_db()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "12345"))
+    # 优先使用环境变量，其次使用配置文件中的 host/port
+    host = os.getenv("HOST", cfg.get('host', '0.0.0.0'))
+    port = int(os.getenv("PORT", cfg.get('port', 12345)))
     server.bind((host, port))
     server.listen(5)
     logging.info("Meow-Chat-Server-v1.4")
-    logging.info(f"Server started on {host}:{port}")
+    logging.info(f"Server started on {host}:{port} (config: {CONFIG_PATH})")
 
     try:
         while True:
