@@ -341,7 +341,7 @@ def start_server():
     port = int(os.getenv("PORT", cfg.get('port', 12345)))
     server.bind((host, port))
     server.listen(5)
-    logging.info("Meow-Chat-Server-v1.4")
+    logging.info("Meow-Chat-Server-v1.5")
     logging.info(f"Server started on {host}:{port} (config: {CONFIG_PATH})")
 
     # 启动后台 DB 写入线程

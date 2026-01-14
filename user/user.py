@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.online_users_label)
 
     def init_ui(self):
-        self.setWindowTitle("meow-chat-user-v1.4")
+        self.setWindowTitle("meow-chat-user-v1.5")
         central = QWidget()
         self.setCentralWidget(central)
         v_layout = QVBoxLayout()
@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
         self.update_chat("已断开与服务器的连接。")
 
     def show_about(self):
-        QMessageBox.information(self, "关于", '<a href="https://github.com/xhdndmm/meow-chat">meow-chat-user-v1.4</a>| By <a href="https://github.com/xhdndmm/">xhdndmm</a> | GPLv3 LICENSE')
+        QMessageBox.information(self, "关于", '<a href="https://github.com/xhdndmm/meow-chat">meow-chat-user-v1.5</a>| By <a href="https://github.com/xhdndmm/">xhdndmm</a> | GPLv3 LICENSE')
 
     def closeEvent(self, event):
         if self.receiver_thread: self.receiver_thread.stop()
