@@ -7,6 +7,13 @@
 </div>
   
 ------
+<img src="./doc/img/01.png" width="600"><img>
+- 运行环境：Archlinux+Plasma  
+
+<img src="./doc/img/02.png" width="600"><img>
+- 运行环境：Windows10 22H2  
+
+------
 
 ## 它是什么？
 这是一个简单的通讯工具，使用Python编写，SQLite作为数据库，PyQt6图形化，AES加密，自带服务端和客户端验证。
