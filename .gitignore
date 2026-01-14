@@ -178,3 +178,4 @@ cython_debug/
 
 local_chat.db
 server_data.db
+server_config.json

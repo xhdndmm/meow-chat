@@ -7,13 +7,34 @@
 </div>
   
 ------
+<img src="./doc/img/01.png" width="600"><img>
+- 运行环境：Archlinux+Plasma  
+
+<img src="./doc/img/02.png" width="600"><img>
+- 运行环境：Windows10 22H2  
+
+------
 
 ## 它是什么？
 这是一个简单的通讯工具，使用Python编写，SQLite作为数据库，PyQt6图形化，AES加密，自带服务端和客户端验证。
 ## 如何使用？
 在[这里](https://github.com/xhdndmm/meow-chat/releases)下载二进制包，运行即可。
 - 服务端需要开放12345端口
-- `server.log`是服务端日志，`server_data.db`是服务端数据库，`local_chat.db`是客户端数据库
+### 服务器配置文件说明
+```json
+{
+  "host": "0.0.0.0",
+  "port": 12345,
+  "db_path": "server_data.db",
+  "log_file": "server.log",
+  "log_level": "INFO"
+}
+```
+- `host`：监听地址
+- `port`：监听端口
+- `db_path`：数据库地址
+- `log_file`：日志地址
+- `log_level`：日志级别
 ## 问题&开发
 程序不可避免存在BUG，你可以在[这里](https://github.com/xhdndmm/meow-chat/issues)反馈  
 我们很欢迎你来为本程序添砖加瓦，但是请遵守以下规则：
